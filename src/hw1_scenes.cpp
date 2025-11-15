@@ -24,25 +24,92 @@ Matrix3x3 parse_transformation(const json &node) {
                 (*scale_it)[0], (*scale_it)[1]
             };
             // TODO (HW1.4): construct a scale matrix and composite with F
-            UNUSED(scale); // silence warning, feel free to remove it
+            Vector3 v1 = F * Vector3{scale.x, Real(0), Real(0)};
+            Vector3 v2 = F * Vector3{Real(0), scale.y, Real(0)};
+            Vector3 v3 = F * Vector3{Real(0), Real(0), Real(1)};
+            F(0,0) = v1.x;
+            F(0,1) = v2.x;
+            F(0,2) = v3.x;
+            
+            F(1,0) = v1.y;
+            F(1,1) = v2.y;
+            F(1,2) = v3.y;
+
+            F(2,0) = v1.z;
+            F(2,1) = v2.z;
+            F(2,2) = v3.z;
         } else if (auto rotate_it = it->find("rotate"); rotate_it != it->end()) {
             Real angle = *rotate_it;
             // TODO (HW1.4): construct a rotation matrix and composite with F
-            UNUSED(angle); // silence warning, feel free to remove it
+            Matrix3x3 m = Matrix3x3::identity();
+            angle = angle*M_PI/Real(180);
+            m(0,0) = Real(cos(angle));
+            m(0,1) = Real(-sin(angle));
+            m(1,0) = Real(sin(angle));
+            m(1,1) = Real(cos(angle));
+            Vector3 v1 = m * Vector3{F(0,0), F(1,0), F(2,0)};
+            Vector3 v2 = m * Vector3{F(0,1), F(1,1), F(2,1)};
+            Vector3 v3 = m * Vector3{F(0,2), F(1,2), F(2,2)};
+            F(0,0) = v1.x;
+            F(0,1) = v2.x;
+            F(0,2) = v3.x;
+            
+            F(1,0) = v1.y;
+            F(1,1) = v2.y;
+            F(1,2) = v3.y;
+
+            F(2,0) = v1.z;
+            F(2,1) = v2.z;
+            F(2,2) = v3.z;
+            std::cout << F << std::endl;
         } else if (auto translate_it = it->find("translate"); translate_it != it->end()) {
             Vector2 translate = Vector2{
                 (*translate_it)[0], (*translate_it)[1]
             };
             // TODO (HW1.4): construct a translation matrix and composite with F
-            UNUSED(translate); // silence warning, feel free to remove it
+            F(0, 2) += translate.x;
+            F(1, 2) += translate.y;
+
         } else if (auto shearx_it = it->find("shear_x"); shearx_it != it->end()) {
             Real shear_x = *shearx_it;
             // TODO (HW1.4): construct a shear matrix (x direction) and composite with F
-            UNUSED(shear_x); // silence warning, feel free to remove it
+            Matrix3x3 m = Matrix3x3::identity();
+            m(0,1) = shear_x;
+
+            Vector3 v1 = m * Vector3{F(0,0), F(1,0), F(2,0)};
+            Vector3 v2 = m * Vector3{F(0,1), F(1,1), F(2,1)};
+            Vector3 v3 = m * Vector3{F(0,2), F(1,2), F(2,2)};
+            F(0,0) = v1.x;
+            F(0,1) = v2.x;
+            F(0,2) = v3.x;
+            
+            F(1,0) = v1.y;
+            F(1,1) = v2.y;
+            F(1,2) = v3.y;
+
+            F(2,0) = v1.z;
+            F(2,1) = v2.z;
+            F(2,2) = v3.z;
         } else if (auto sheary_it = it->find("shear_y"); sheary_it != it->end()) {
             Real shear_y = *sheary_it;
             // TODO (HW1.4): construct a shear matrix (y direction) and composite with F
-            UNUSED(shear_y); // silence warning, feel free to remove it
+            Matrix3x3 m = Matrix3x3::identity();
+            m(1,0) = shear_y;
+ 
+            Vector3 v1 = m * Vector3{F(0,0), F(1,0), F(2,0)};
+            Vector3 v2 = m * Vector3{F(0,1), F(1,1), F(2,1)};
+            Vector3 v3 = m * Vector3{F(0,2), F(1,2), F(2,2)};
+            F(0,0) = v1.x;
+            F(0,1) = v2.x;
+            F(0,2) = v3.x;
+            
+            F(1,0) = v1.y;
+            F(1,1) = v2.y;
+            F(1,2) = v3.y;
+
+            F(2,0) = v1.z;
+            F(2,1) = v2.z;
+            F(2,2) = v3.z;
         }
     }
     return F;
