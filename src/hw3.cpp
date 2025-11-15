@@ -203,10 +203,10 @@ const char *vertexShader = "#version 330 core\n"
 
 const char *fragmentShader = "#version 330 core\n"
 "out vec4 FragColor;\n"
-"in vec3 vertexColor;\n"
+"in vec3 color;\n"
 "void main()\n"
 "{\n"
-" FragColor = vec4(vertexColor, 1.0f);\n"
+" FragColor = vec4(color, 1.0f);\n"
 "}\0";
 
 glm::mat4 convert_matrix(Matrix4x4f m){
@@ -235,8 +235,6 @@ void hw_3_3(const std::vector<std::string> &params) {
     float s = scene.camera.s; // scaling factor of the view frustrum
     float z_near = scene.camera.z_near; // distance of the near clipping plane
     float z_far = scene.camera.z_far; // distance of far clipping plane
-    Matrix4x4f V = inverse(scene.camera.cam_to_world);
-    glm::mat4 view = convert_matrix(V);
 
 
     glfwInit();
@@ -248,20 +246,7 @@ void hw_3_3(const std::vector<std::string> &params) {
     // Use CORE profile for modern functions
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    float vertices[] = 
-    {
-        0.5f,  0.5f, 0.0f, // top right
-        0.5f, -0.5f, 0.0f, // bottom right
-        -0.5f, -0.5f, 0.0f, // bottom left
-         -0.5f, 0.5f, 0.0f, // top left
-    };
-
-    unsigned int indices[] = {
-        0, 1, 3, //first triangle
-        1, 2, 3  //second triangle
-    };
-
-    GLFWwindow* window = glfwCreateWindow(800, 800, "hw3", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(scene.camera.resolution.x, scene.camera.resolution.y, "hw3", NULL, NULL);
     if (window == NULL){
         std::cout << "Failed to create GLFW Window" << std::endl;
         glfwTerminate();
@@ -269,6 +254,11 @@ void hw_3_3(const std::vector<std::string> &params) {
     }
     // Introduce window to current context
     glfwMakeContextCurrent(window);
+
+    if(!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)){
+        std::cout<< "Failed to initialize GLAD" << std::endl;
+        return;
+    }
 
     // Load GLAD to configure OpenGL
     gladLoadGL();
@@ -292,103 +282,117 @@ void hw_3_3(const std::vector<std::string> &params) {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    for (int scene_id = 0; scene_id < scene.meshes.size(); scene_id++){
-        TriangleMesh mesh = scene.meshes[scene_id];
-        Matrix4x4 T = V * mesh.model_matrix;
-        for (int i = 0; i < mesh.vertices.size(); i+=3){
-            vertices[i] = mesh.vertices[i][0];
-            vertices[i+1] = mesh.vertices[i][1];
-            vertices[i+2] = mesh.vertices[i][2];
-        }
-        for (int i = 0; i < mesh.faces.size(); i+=3){
-            indices[i] = mesh.faces[i][0];
-            indices[i+1] = mesh.faces[i][1];
-            indices[i+2] = mesh.faces[i][2];
-        }
-
-        glm::mat4 model = glm::mat4(1.0f);
-        glm::mat4 proj = glm::mat4(1.0f);
-        view = glm::translate(view, glm::vec3(0.0f,-0.5f,-2.0f));
-        proj = glm::perspective(glm::radians(45.0f), aspect_ratio, z_near, z_far);
-    }
-
-
-    GLuint VAO, VBO, EBO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
-
-    glBindVertexArray(VAO);
-
-    unsigned int VBO_vertex;
-    glGenBuffers(1, &VBO_vertex);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_vertex);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0 /* layout index */,
-                        3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    int total_meshes = scene.meshes.size();
     
-    glEnableVertexAttribArray(0);
+    unsigned int VAO[total_meshes];
+    unsigned int VBO_vertex[total_meshes];
+    unsigned int VBO_color[total_meshes];
+    unsigned int EBO[total_meshes];
 
-    unsigned int VBO_color;
-    glGenBuffers(1, &VBO_color);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_color);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(1 /* layout index */,
-                        3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glGenVertexArrays(total_meshes, VAO);
 
+    glGenBuffers(total_meshes, VBO_vertex);
+    glGenBuffers(total_meshes, VBO_color);
+    glGenBuffers(total_meshes, EBO);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+    for (int scene_id = 0; scene_id < total_meshes; scene_id++){
+        TriangleMesh mesh = scene.meshes[scene_id];
+        int num_vertices = mesh.vertices.size();
+        int num_indices = mesh.faces.size();
 
-    glEnableVertexAttribArray(1);
+        float vertices[num_vertices];
+        float colors[num_vertices];
+        unsigned int indices[num_indices];
+
+        glBindVertexArray(VAO[scene_id]);
+        
+        for (int i = 0; i < num_vertices; i++){
+            vertices[(3*i)] = mesh.vertices[i][0];
+            vertices[(3*i)+1] = mesh.vertices[i][1];
+            vertices[(3*i)+2] = mesh.vertices[i][2];
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, VBO_vertex[scene_id]);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+        glVertexAttribPointer(0 /* layout index */,
+                            3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+
+        for (int i = 0; i < num_vertices; i++){
+            colors[(3*i)] = mesh.vertex_colors[i][0];
+            colors[(3*i)+1] = mesh.vertex_colors[i][1];
+            colors[(3*i)+2] = mesh.vertex_colors[i][2];
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, VBO_color[scene_id]);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(colors), colors, GL_STATIC_DRAW);
+        glVertexAttribPointer(1 /* layout index */,
+                            3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
+
+        for (int i = 0; i < num_indices; i++){
+            indices[(3*i)] = mesh.faces[i][0];
+            indices[(3*i)+1] = mesh.faces[i][1];
+            indices[(3*i)+2] = mesh.faces[i][2];
+        }
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO[scene_id]);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+        glVertexAttribPointer(0 /* layout index */,
+                            3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+    }
+    glm::mat4 proj = glm::mat4(1.0f);
+    proj[0][0] = 1/(aspect_ratio*s);
+    proj[1][1] = 1/(s);
+    proj[2][2] = -z_far/ (z_far-z_near);
+    proj[3][2] = -1;
+    proj[2][3] = -(z_far*z_near)/(z_far-z_near);
+    proj[3][3] = 0;
 
     glEnable(GL_DEPTH_TEST);
 
-    // Main while loop
     while(!glfwWindowShouldClose(window)){
         // Add a background color 
-        glClearColor(1.0f, 0.35f, 0.3f, 1.0f);
+        glClearColor(bg_color.x, bg_color.y, bg_color.z, 1.0f);
         // Clean back buffer and assign new color
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glm::mat4 model = glm::mat4(1.0f);
-        glm::mat4 view = glm::mat4(1.0f);
-        glm::mat4 proj = glm::mat4(1.0f);
-        view = glm::translate(view, glm::vec3(0.0f,-0.5f,-2.0f));
-        proj = glm::perspective(glm::radians(45.0f), aspect_ratio, z_near, z_far);
+        for(int n = 0; n < total_meshes; n++){
+            TriangleMesh mesh = scene.meshes[n];
+            Matrix4x4f V = inverse(scene.camera.cam_to_world);
+            glm::mat4 model = convert_matrix(mesh.model_matrix);
+            glm::mat4 view = convert_matrix(V);
 
-        int modelLocation = glGetUniformLocation(shaderProgram, "model");
-        glUniformMatrix4fv(modelLocation, 1, GL_FALSE, glm::value_ptr(model));
+            int modelLocation = glGetUniformLocation(shaderProgram, "model");
+            glUniformMatrix4fv(modelLocation, 1, GL_FALSE, glm::value_ptr(model));
 
-        int viewLocation = glGetUniformLocation(shaderProgram, "view");
-        glUniformMatrix4fv(viewLocation, 1, GL_FALSE, glm::value_ptr(view));
+            int viewLocation = glGetUniformLocation(shaderProgram, "view");
+            glUniformMatrix4fv(viewLocation, 1, GL_FALSE, glm::value_ptr(view));
 
-        int projLocation = glGetUniformLocation(shaderProgram, "proj");
-        glUniformMatrix4fv(projLocation, 1, GL_FALSE, glm::value_ptr(proj));
-
-
-        float time = glfwGetTime();
-        float theta = time;
-
-        int vertexRotateLocation = glGetUniformLocation(shaderProgram, "radians");
-        glUniform1f(vertexRotateLocation, theta);
+            int projLocation = glGetUniformLocation(shaderProgram, "proj");
+            glUniformMatrix4fv(projLocation, 1, GL_FALSE, glm::value_ptr(proj));
 
 
-        glUseProgram(shaderProgram);
-        glBindVertexArray(VAO);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-        //glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-        glBindVertexArray(0);
+            // float time = glfwGetTime();
+            // float theta = time;
+
+            // int vertexRotateLocation = glGetUniformLocation(shaderProgram, "radians");
+            // glUniform1f(vertexRotateLocation, theta);
+
+
+            glUseProgram(shaderProgram);
+            glBindVertexArray(VAO[n]);
+            glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+        }
         
-        glfwSwapBuffers(window);
         // Take care of all GLFW events
         glfwPollEvents();
+        glfwSwapBuffers(window);
     }
 
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO_vertex);
-    glDeleteBuffers(1, &VBO_color);
-    glDeleteBuffers(1, &EBO);
+    glDeleteVertexArrays(total_meshes, VAO);
+    glDeleteBuffers(total_meshes, VBO_vertex);
+    glDeleteBuffers(total_meshes, VBO_color);
+    glDeleteBuffers(total_meshes, EBO);
     glDeleteProgram(shaderProgram);
 
     glfwDestroyWindow(window);
