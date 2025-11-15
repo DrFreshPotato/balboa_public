@@ -487,6 +487,55 @@ void hw_3_3(const std::vector<std::string> &params) {
     return;
 }
 
+
+const char *vertexShaderLight = "#version 330 core\n"
+"layout (location = 0) in vec3 aPos;\n"
+"layout (location = 1) in vec3 aColor;\n"
+"layout (location = 2) in vec3 aNormal;\n"
+"uniform mat4 model;\n"
+"uniform mat4 view;\n"
+"uniform mat4 proj;\n"
+"uniform mat3 norm;\n"
+"out vec3 color;\n"
+"out vec3 FragPos;\n"
+"out vec3 Normal;\n"
+"void main()\n"
+"{\n"
+" gl_Position = proj * view * model * vec4(aPos, 1.0);\n"
+" color = aColor;\n"
+" Normal = norm * aNormal;\n"
+" FragPos = vec3(model * vec4(aPos,1.0));\n"
+"}\0";
+
+const char *fragmentShaderLight = "#version 330 core\n"
+"out vec4 FragColor;\n"
+"in vec3 Normal;\n"
+"in vec3 color;\n"
+"in vec3 FragPos;\n"
+"uniform vec3 lightColor;\n"
+"uniform vec3 viewPos;\n"
+"void main()\n"
+"{\n"
+
+"float ambientStrength = 0.1;\n"
+"vec3 ambient = ambientStrength * lightColor;\n"
+
+"vec3 norm = normalize(Normal);\n"
+"vec3 lightDir = normalize(vec3(1,1,1));\n"
+
+"float diff = max(dot(norm, lightDir), 0.0);\n"
+"vec3 diffuse = diff * lightColor;\n"
+
+"float specularStrength = 0.5;\n"
+"vec3 viewDir = normalize(viewPos - FragPos);\n"
+"vec3 reflectDir = reflect(-lightDir, norm);\n"
+"float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);\n"
+"vec3 specular = specularStrength * spec * lightColor; \n" 
+
+"vec3 result = (ambient + diffuse + specular) * color;\n"
+"FragColor = vec4(result, 1.0);\n"
+"}\0";
+
 void hw_3_4(const std::vector<std::string> &params) {
     // HW 3.4: Render a scene with lighting
     if (params.size() == 0) {
@@ -495,4 +544,219 @@ void hw_3_4(const std::vector<std::string> &params) {
 
     Scene scene = parse_scene(params[0]);
     std::cout << scene << std::endl;
+    double width = scene.camera.resolution.x;
+    double height = scene.camera.resolution.y;
+    float aspect_ratio = width/height;
+
+    Vector3 bg_color = scene.background;
+    float s = scene.camera.s; // scaling factor of the view frustrum
+    float z_near = scene.camera.z_near; // distance of the near clipping plane
+    float z_far = scene.camera.z_far; // distance of far clipping plane
+
+
+    glfwInit();
+    // Designate OpenGL version to GLFW
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+
+    // Use CORE profile for modern functions
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    GLFWwindow* window = glfwCreateWindow(scene.camera.resolution.x, scene.camera.resolution.y, "hw3", NULL, NULL);
+    if (window == NULL){
+        std::cout << "Failed to create GLFW Window" << std::endl;
+        glfwTerminate();
+        return;
+    }
+    // Introduce window to current context
+    glfwMakeContextCurrent(window);
+
+    if(!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)){
+        std::cout<< "Failed to initialize GLAD" << std::endl;
+        return;
+    }
+
+    // Load GLAD to configure OpenGL
+    // gladLoadGL();
+
+    // Specify size of Viewport
+    glViewport(0, 0, scene.camera.resolution.x, scene.camera.resolution.y);
+
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetCursorPosCallback(window, mouse_callback);
+    
+    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertexShader, 1, &vertexShaderLight, NULL);
+    glCompileShader(vertexShader);
+
+    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, &fragmentShaderLight, NULL);
+    glCompileShader(fragmentShader);
+
+    GLuint shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, vertexShader);
+    glAttachShader(shaderProgram, fragmentShader);
+    glLinkProgram(shaderProgram);
+
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    int total_meshes = scene.meshes.size();
+    
+    unsigned int VAO[total_meshes];
+    unsigned int VBO_vertex[total_meshes];
+    unsigned int VBO_color[total_meshes];
+    unsigned int VBO_norm[total_meshes];
+    unsigned int EBO[total_meshes];
+
+    glGenVertexArrays(total_meshes, VAO);
+
+    glGenBuffers(total_meshes, VBO_vertex);
+    glGenBuffers(total_meshes, VBO_color);
+    glGenBuffers(total_meshes, VBO_norm);
+    glGenBuffers(total_meshes, EBO);
+
+    for (int scene_id = 0; scene_id < total_meshes; scene_id++){
+        TriangleMesh mesh = scene.meshes[scene_id];
+        int num_vertices = mesh.vertices.size();
+        int num_indices = mesh.faces.size();
+
+        float vertices[3*num_vertices];
+        float colors[3*num_vertices];
+        float norms[3*num_vertices];
+        unsigned int indices[3*num_indices];
+
+        glBindVertexArray(VAO[scene_id]);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO[scene_id]);
+        
+        glBindBuffer(GL_ARRAY_BUFFER, VBO_vertex[scene_id]);
+        for (int i = 0; i < num_vertices; i++){
+            vertices[(3*i)] = mesh.vertices[i].x;
+            vertices[(3*i)+1] = mesh.vertices[i].y;
+            vertices[(3*i)+2] = mesh.vertices[i].z;
+        }
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+        glVertexAttribPointer(0 /* layout index */,
+                            3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+
+        for (int i = 0; i < num_vertices; i++){
+            colors[(3*i)] = mesh.vertex_colors[i].x;
+            colors[(3*i)+1] = mesh.vertex_colors[i].y;
+            colors[(3*i)+2] = mesh.vertex_colors[i].z;
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, VBO_color[scene_id]);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(colors), colors, GL_STATIC_DRAW);
+        glVertexAttribPointer(1 /* layout index */,
+                            3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
+
+        for (int i = 0; i < num_vertices; i++){
+            norms[(3*i)] = mesh.vertex_normals[i].x;
+            norms[(3*i)+1] = mesh.vertex_normals[i].y;
+            norms[(3*i)+2] = mesh.vertex_normals[i].z;
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, VBO_norm[scene_id]);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(norms), norms, GL_STATIC_DRAW);
+        glVertexAttribPointer(2 /* layout index */,
+                            3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(2);
+
+        for (int i = 0; i < num_indices; i++){
+            indices[(3*i)] = mesh.faces[i].x;
+            indices[(3*i)+1] = mesh.faces[i].y;
+            indices[(3*i)+2] = mesh.faces[i].z;
+        }
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+        
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    }
+    glm::mat4 proj = glm::mat4(1.0f);
+    proj[0][0] = 1/(aspect_ratio*s);
+    proj[1][1] = 1/(s);
+    proj[2][2] = -z_far/ (z_far-z_near);
+    proj[2][3] = -1;
+    proj[3][2] = -(z_far*z_near)/(z_far-z_near);
+    proj[3][3] = 0;
+
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_FRAMEBUFFER_SRGB);
+
+    // set initial cameraPos, cameraUp & cameraFront
+    for (int i = 0; i < 4; i++)
+    {
+        for (int j = 0; j < 4; j++)
+        {
+            initialCamToWorld[i][j] = scene.camera.cam_to_world(j, i);
+        }
+    }
+
+    cameraPos = glm::vec3(scene.camera.cam_to_world(0, 3), scene.camera.cam_to_world(1, 3), scene.camera.cam_to_world(2, 3));
+    cameraUp = glm::vec3(scene.camera.cam_to_world(0, 1), scene.camera.cam_to_world(1, 1), scene.camera.cam_to_world(2, 1));
+    cameraFront = glm::vec3(-initialCamToWorld[2][0], -initialCamToWorld[2][1], -initialCamToWorld[2][2]);
+
+    lastX = scene.camera.resolution.x / 2.0f;
+    lastY = scene.camera.resolution.y / 2.0f;
+
+    while(!glfwWindowShouldClose(window)){
+        float time = glfwGetTime();
+        deltaTime = time - prevTime;
+        prevTime = time;
+        processInput(window);
+
+        // Add a background color 
+        glClearColor(bg_color.x, bg_color.y, bg_color.z, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        
+        
+        glUseProgram(shaderProgram);
+
+        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+        for(int n = 0; n < total_meshes; n++){
+            TriangleMesh mesh = scene.meshes[n];
+            glm::mat4 model = convert_matrix(mesh.model_matrix);
+
+            int modelLocation = glGetUniformLocation(shaderProgram, "model");
+            glUniformMatrix4fv(modelLocation, 1, GL_FALSE, glm::value_ptr(model));
+
+            int viewLocation = glGetUniformLocation(shaderProgram, "view");
+            glUniformMatrix4fv(viewLocation, 1, GL_FALSE, glm::value_ptr(view));
+
+            int projLocation = glGetUniformLocation(shaderProgram, "proj");
+            glUniformMatrix4fv(projLocation, 1, GL_FALSE, glm::value_ptr(proj));
+
+            int lightColorLoc = glGetUniformLocation(shaderProgram, "lightColor");
+            glUniform3f(lightColorLoc, 1.0f, 1.0f, 1.0f);
+
+            glm::mat3 norm_matrix = glm::mat3(glm::transpose(glm::inverse(model)));
+            
+            int normalLocation = glGetUniformLocation(shaderProgram, "norm");
+            glUniformMatrix3fv(normalLocation, 1, GL_FALSE, glm::value_ptr(norm_matrix));
+
+            int viewPos = glGetUniformLocation(shaderProgram, "viewPos");
+            glUniform3f(viewPos, cameraPos.x, cameraPos.y, cameraPos.z);
+
+
+            glBindVertexArray(VAO[n]);
+            glDrawElements(GL_TRIANGLES, 3 * mesh.faces.size(), GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
+        }
+        glfwSwapBuffers(window);
+        // Take care of all GLFW events 
+        glfwPollEvents();
+    }
+
+    glDeleteVertexArrays(total_meshes, VAO);
+    glDeleteBuffers(total_meshes, VBO_vertex);
+    glDeleteBuffers(total_meshes, VBO_color);
+    glDeleteBuffers(total_meshes, EBO);
+    glDeleteProgram(shaderProgram);
+
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    return;
 }
